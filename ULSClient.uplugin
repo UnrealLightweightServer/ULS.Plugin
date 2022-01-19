@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1",
+	"FriendlyName": "ULSClient",
+	"Description": "ULS.Client",
+	"Category": "UnrealLightweightServer",
+	"CreatedBy": "Henning Thoele",
+	"CreatedByURL": "https://github.com/UnrealLightweightServer/",
+	"DocsURL": "https://github.com/UnrealLightweightServer/",
+	"MarketplaceURL": "https://github.com/UnrealLightweightServer/",
+	"SupportURL": "https://github.com/UnrealLightweightServer/",
+	"CanContainContent": false,
+	"CanContainVerse": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "ULSClient",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
