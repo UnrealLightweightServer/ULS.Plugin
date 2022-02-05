@@ -2,7 +2,6 @@
 
 
 #include "ULSClientNetworkOwner.h"
-#include "VaRestJsonObject.h"
 #include "ULSWirePacket.h"
 #include "ULSTransport.h"
 

@@ -23,8 +23,7 @@ public class ULSClient : ModuleRules
 				"Sockets",
 				"NetCore",
 				"Networking",
-				"WebSockets",
-				"VaRest"
+				"WebSockets"
 			}
 		);
 	}
