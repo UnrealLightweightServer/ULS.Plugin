@@ -6,46 +6,20 @@
 
 int32 UULSFunctionLibrary::GetPacketTypeByName(const FString& str)
 {
-    if (str == TEXT("WorldJoinRequest"))
+    // Basic connection setup
+    if (str == TEXT("ConnectionRequest"))
     {
-        return (int32)EWirePacketType::WorldJoinRequest;
+        return (int32)EWirePacketType::ConnectionRequest;
     }
-    else if (str == TEXT("WorldLeaveRequest"))
+    else if (str == TEXT("ConnectionResponse"))
     {
-        return (int32)EWirePacketType::WorldLeaveRequest;
+        return (int32)EWirePacketType::ConnectionResponse;
     }
-    else if (str == TEXT("WorldJoinComplete"))
+    else if (str == TEXT("ConnectionEnd"))
     {
-        return (int32)EWirePacketType::WorldJoinComplete;
+        return (int32)EWirePacketType::ConnectionEnd;
     }
-    else if (str == TEXT("WorldInvalid"))
-    {
-        return (int32)EWirePacketType::WorldInvalid;
-    }
-    else if (str == TEXT("WorldJoinSuccess"))
-    {
-        return (int32)EWirePacketType::WorldJoinSuccess;
-    }
-    else if (str == TEXT("MatchLeaveSuccess"))
-    {
-        return (int32)EWirePacketType::MatchLeaveSuccess;
-    }
-    else if (str == TEXT("WorldBegin"))
-    {
-        return (int32)EWirePacketType::WorldBegin;
-    }
-    else if (str == TEXT("WorldEnd"))
-    {
-        return (int32)EWirePacketType::WorldEnd;
-    }
-    else if (str == TEXT("RpcCall"))
-    {
-        return (int32)EWirePacketType::RpcCall;
-    }
-    else if (str == TEXT("RpcCallResponse"))
-    {
-        return (int32)EWirePacketType::RpcCallResponse;
-    }
+    // Runtime messages
     else if (str == TEXT("Replication"))
     {
         return (int32)EWirePacketType::Replication;
@@ -58,13 +32,26 @@ int32 UULSFunctionLibrary::GetPacketTypeByName(const FString& str)
     {
         return (int32)EWirePacketType::DespawnActor;
     }
-    else if (str == TEXT("SystemMessage"))
+    else if (str == TEXT("CreateObject"))
     {
-        return (int32)EWirePacketType::SystemMessage;
+        return (int32)EWirePacketType::CreateObject;
     }
-    else if (str == TEXT("ChatMessage"))
+    else if (str == TEXT("DestroyObject"))
     {
-        return (int32)EWirePacketType::ChatMessage;
+        return (int32)EWirePacketType::DestroyObject;
+    }
+    else if (str == TEXT("RpcCall"))
+    {
+        return (int32)EWirePacketType::RpcCall;
+    }
+    else if (str == TEXT("RpcCallResponse"))
+    {
+        return (int32)EWirePacketType::RpcCallResponse;
+    }
+    // Custom
+    else if (str == TEXT("Custom"))
+    {
+        return (int32)EWirePacketType::Custom;
     }
 
     return -1;
@@ -76,25 +63,22 @@ FString UULSFunctionLibrary::GetPacketNameByType(int32 type)
 
     switch (etype)
     {
-        case EWirePacketType::WorldJoinRequest: return TEXT("WorldJoinRequest");
-        case EWirePacketType::WorldLeaveRequest: return TEXT("WorldLeaveRequest");
-        case EWirePacketType::WorldJoinComplete: return TEXT("WorldJoinComplete");
+        // Basic connection setup
+        case EWirePacketType::ConnectionRequest: return TEXT("ConnectionRequest");
+        case EWirePacketType::ConnectionResponse: return TEXT("ConnectionResponse");
+        case EWirePacketType::ConnectionEnd: return TEXT("ConnectionEnd");
 
-        case EWirePacketType::WorldInvalid: return TEXT("WorldInvalid");
-        case EWirePacketType::WorldJoinSuccess: return TEXT("WorldJoinSuccess");
-        case EWirePacketType::MatchLeaveSuccess: return TEXT("MatchLeaveSuccess");
-        case EWirePacketType::WorldBegin: return TEXT("WorldBegin");
-        case EWirePacketType::WorldEnd: return TEXT("WorldEnd");
-
-        case EWirePacketType::RpcCall: return TEXT("RpcCall");
-        case EWirePacketType::RpcCallResponse: return TEXT("RpcCallResponse");
-
+        // Runtime messages
         case EWirePacketType::Replication: return TEXT("Replication");
         case EWirePacketType::SpawnActor: return TEXT("SpawnActor");
         case EWirePacketType::DespawnActor: return TEXT("DespawnActor");
+        case EWirePacketType::CreateObject: return TEXT("CreateObject");
+        case EWirePacketType::DestroyObject: return TEXT("DestroyObject");
+        case EWirePacketType::RpcCall: return TEXT("RpcCall");
+        case EWirePacketType::RpcCallResponse: return TEXT("RpcCallResponse");
 
-        case EWirePacketType::SystemMessage: return TEXT("SystemMessage");
-        case EWirePacketType::ChatMessage: return TEXT("ChatMessage");
+        // Custom
+        case EWirePacketType::Custom: return TEXT("Custom");
     }
 
     return TEXT("");

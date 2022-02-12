@@ -8,15 +8,9 @@
 
 enum EWirePacketType : int
 {
-    WorldJoinRequest = 0,           // Sent by player. Request to join a match. Returns WorldInvalid or WorldJoinSuccess
-    WorldLeaveRequest = 1,          // Sent by player. Request to leave match. Returns WorldLeaveSuccess
-    WorldJoinComplete = 2,          // Sent by player. Player has entered world and is ready for start.
-
-    WorldInvalid = 10,              // Sent by server, if WorldJoinRequest is invalid
-    WorldJoinSuccess = 11,          // Sent by server, if WorldJoinRequest is valid
-    MatchLeaveSuccess = 12,         // Sent by server, if WorldLeaveRequest is valid
-    WorldBegin = 13,                // Sent by server. World enters running state
-    WorldEnd = 14,                  // Sent by server. World has shut down
+    ConnectionRequest = 0,          // Sent by client. Request to establisch connection. Followed by ConnectionResponse
+    ConnectionResponse = 1,         // Sent by server upon receiving a ConnectionRequest. Contains "success true/false"
+    ConnectionEnd = 2,              // Sent by server when the connection is closed gracefully from the server side (i.e. when the "world" is shut down)
 
     Replication = 110,              // Replication message. Sent by the server only.
     SpawnActor = 111,               // Spawns a new network actor on the client. Sent by the server only.
@@ -26,8 +20,7 @@ enum EWirePacketType : int
     RpcCall = 115,                  // Serialized RpcCall. Can be sent by both parties.
     RpcCallResponse = 116,          // Serialized response to an RpcCall. Can be sent by both parties.
 
-    SystemMessage = 200,
-    ChatMessage,
+    Custom = 200                    // Custom, user-specific data. Ignored in low-level operations
 };
 
 /**

@@ -21,35 +21,56 @@ enum EReplicatedFieldType : int8
 UCLASS(Blueprintable)
 class ULSCLIENT_API UULSClientNetworkOwner : public UObject
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
+
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FConnectionEvent, bool, bSuccess);
+    DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FDisconnectionEvent, int32, statusCode, bool, bWasClean);
 	
 public:
 	UPROPERTY(BlueprintReadWrite)
 		class UULSTransport* Transport;
 
-	UFUNCTION(BlueprintImplementableEvent, Category = ClientNetworkOwner)
-		void OnConnected(bool success, const FString& errorMessage);
+    UPROPERTY(BlueprintAssignable)
+        FConnectionEvent OnConnectionEvent;
 
-	UFUNCTION(BlueprintImplementableEvent, Category = ClientNetworkOwner)
-		void OnDisconnected(int32 StatusCode, const FString& Reason, bool bWasClean);
+    UPROPERTY(BlueprintAssignable)
+        FDisconnectionEvent OnDisconnectionEvent;
 
-	UFUNCTION()
-		void HandleWirePacket(const UULSWirePacket* packet);
+    void OnConnected(bool success, const FString& errorMessage);
+
+    void OnDisconnected(int32 StatusCode, const FString& Reason, bool bWasClean);
+
+	void HandleWirePacket(const UULSWirePacket* packet);
 
 	UFUNCTION(BlueprintImplementableEvent, Category = WebsocketMasterServer)
 		void OnReceivePacket(const UULSWirePacket* packet);
-
-	BEGIN_RPC_BP_EVENTS_FROM_SERVER
-	END_RPC_BP_EVENTS_FROM_SERVER
-
-	BEGIN_RPC_BP_EVENTS_TO_SERVER
-	END_RPC_BP_EVENTS_TO_SERVER
 
 	UFUNCTION(BlueprintCallable)
 		AActor* FindActorByUniqueId(int64 uniqueId) const;
 
 protected:
-	virtual void HandleRpcPacket(const UULSWirePacket* packet);
+    /*
+    * Fills the connection request packet with user-specific data.
+    * 
+    * The default implementation writes the UniqueNetId as an FString to the packet
+    */
+    virtual void BuildConnectionRequestPacket(UULSWirePacket* packet);
+
+    /*
+    * Process the response packet containing user-specific data.
+    * 
+    * Return true if the connection should be accepted
+    * 
+    * The default implementation reads a single byte from the packet and interprets
+    * that as a bool.
+    */
+    virtual bool ProcessConnectionResponsePacket(const UULSWirePacket* packet);
+
+    virtual void HandleRpcPacket(const UULSWirePacket* packet);
+
+    virtual void HandleConnectionResponseMessage(const UULSWirePacket* packet);
+
+    virtual void HandleConnectionEndMessage(const UULSWirePacket* packet);
 
 private:
     void HandleRpcResponsePacket(const UULSWirePacket* packet);
