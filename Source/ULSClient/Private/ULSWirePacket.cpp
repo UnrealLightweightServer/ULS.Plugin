@@ -16,7 +16,7 @@ bool UULSWirePacket::ParseFromBytes(const TArray<uint8>& bytes)
 		return false;
 	}
 
-	PacketType = EndianSwap(*(int32*)bytes.GetData());
+	PacketType = *(int32*)bytes.GetData();
 
 	int payloadLength = bytes.Num() - 4;
 	Payload = TArray<uint8>(bytes.GetData() + 4, payloadLength);
@@ -26,7 +26,7 @@ bool UULSWirePacket::ParseFromBytes(const TArray<uint8>& bytes)
 
 TArray<uint8> UULSWirePacket::SerializeToBytes() const
 {
-	int32 packetType = EndianSwap(PacketType);
+	int32 packetType = PacketType;
 
 	TArray<uint8> result;
 	result.Append((uint8*)&packetType, sizeof(int32));

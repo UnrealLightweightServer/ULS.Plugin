@@ -16,10 +16,10 @@ bool UULSTransport::Connect()
 
 void UULSTransport::Disconnect()
 {
-
+	//
 }
 
 void UULSTransport::SendWirePacket(const UULSWirePacket* packet)
 {
-
+	//
 }
