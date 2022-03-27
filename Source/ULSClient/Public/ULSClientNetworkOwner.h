@@ -10,9 +10,10 @@
 enum EReplicatedFieldType : int8
 {
 	Reference = 0,
-	Primitive = 1,
+	PrimitiveInt = 1,
 	String = 2,
-	Vector3 = 3
+	Vector3 = 3,
+    PrimitiveFloat = 4,
 };
 
 /**
@@ -66,13 +67,16 @@ protected:
     */
     virtual bool ProcessConnectionResponsePacket(const UULSWirePacket* packet);
 
-    virtual void HandleRpcPacket(const UULSWirePacket* packet);
+    virtual void ProcessHandleRpcPacket(const UULSWirePacket* packet, int packetReadPosition, AActor* existingActor, const FString& methodName,
+        const FString& returnType, const int32 numberOfParameters);
 
     virtual void HandleConnectionResponseMessage(const UULSWirePacket* packet);
 
     virtual void HandleConnectionEndMessage(const UULSWirePacket* packet);
 
 private:
+    void HandleRpcPacket(const UULSWirePacket* packet);
+
     void HandleRpcResponsePacket(const UULSWirePacket* packet);
 
     void HandleSpawnActorMessage(const UULSWirePacket* packet);
@@ -80,6 +84,10 @@ private:
     void HandleDespawnActorMessage(const UULSWirePacket* packet);
 
     void HandleReplicationMessage(const UULSWirePacket* packet);
+
+    void ReadProperties(const UULSWirePacket* packet, const UClass* theClass, int numProperties, UObject* targetObject, int position, bool callOnRep = false);
+
+    void ReadProperties(const UULSWirePacket* packet, const UClass* theClass, int numProperties, void* targetObject, int position, bool callOnRep = false);
 
 private:
 	UPROPERTY()
@@ -97,6 +105,8 @@ protected:
     UFUNCTION()
         AActor* DeserializeRef(const UULSWirePacket* packet, int index, int& advancedPosition) const;
     UFUNCTION()
+        int8 DeserializeInt8(const UULSWirePacket* packet, int index, int& advancedPosition) const;
+    UFUNCTION()
         int16 DeserializeInt16(const UULSWirePacket* packet, int index, int& advancedPosition) const;
     UFUNCTION()
         int32 DeserializeInt32(const UULSWirePacket* packet, int index, int& advancedPosition) const;
@@ -104,6 +114,8 @@ protected:
         int64 DeserializeInt64(const UULSWirePacket* packet, int index, int& advancedPosition) const;
     UFUNCTION()
         float DeserializeFloat32(const UULSWirePacket* packet, int index, int& advancedPosition) const;
+    UFUNCTION()
+        double DeserializeFloat64(const UULSWirePacket* packet, int index, int& advancedPosition) const;
     UFUNCTION()
         bool DeserializeBool(const UULSWirePacket* packet, int index, int& advancedPosition, int boolSize) const;
     UFUNCTION()
@@ -122,6 +134,8 @@ protected:
     UFUNCTION()
         float DeserializeFloat32Parameter(const UULSWirePacket* packet, int index, int& advancedPosition) const;
     UFUNCTION()
+        double DeserializeFloat64Parameter(const UULSWirePacket* packet, int index, int& advancedPosition) const;
+    UFUNCTION()
         bool DeserializeBoolParameter(const UULSWirePacket* packet, int index, int& advancedPosition) const;
     UFUNCTION()
         FString DeserializeStringParameter(const UULSWirePacket* packet, int index, int& advancedPosition) const;
@@ -139,6 +153,8 @@ protected:
     UFUNCTION()
         void SerializeFloat32Parameter(UULSWirePacket* packet, FString fieldname, float value, int index, int& advancedPosition) const;
     UFUNCTION()
+        void SerializeFloat64Parameter(UULSWirePacket* packet, FString fieldname, double value, int index, int& advancedPosition) const;
+    UFUNCTION()
         void SerializeBoolParameter(UULSWirePacket* packet, FString fieldname, bool value, int index, int& advancedPosition) const;
     UFUNCTION()
         void SerializeStringParameter(UULSWirePacket* packet, FString fieldname, FString value, int index, int& advancedPosition) const;
@@ -155,6 +171,8 @@ protected:
         int32 GetSerializeInt64ParameterSize(FString fieldname) const;
     UFUNCTION()
         int32 GetSerializeFloat32ParameterSize(FString fieldname) const;
+    UFUNCTION()
+        int32 GetSerializeFloat64ParameterSize(FString fieldname) const;
     UFUNCTION()
         int32 GetSerializeBoolParameterSize(FString fieldname) const;
     UFUNCTION()

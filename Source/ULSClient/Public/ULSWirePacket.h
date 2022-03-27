@@ -48,21 +48,20 @@ public:
 
     UFUNCTION()
         int8 ReadInt8(int index, int& advancedPosition) const;
-
     UFUNCTION()
         int16 ReadInt16(int index, int& advancedPosition) const;
-
     UFUNCTION()
         int32 ReadInt32(int index, int& advancedPosition) const;
-
-    UFUNCTION()
-        float ReadFloat32(int index, int& advancedPosition) const;
-
     UFUNCTION()
         int64 ReadInt64(int index, int& advancedPosition) const;
-
+    UFUNCTION()
+        float ReadFloat32(int index, int& advancedPosition) const;
+    UFUNCTION()
+        double ReadFloat64(int index, int& advancedPosition) const;
     UFUNCTION()
         FString ReadString(int index, int& advancedPosition) const;
+    
+    const uint8* ReadDataPtr(int size, int index, int& advancedPosition) const;
 
     UFUNCTION()
         void PutInt8(int8 value, int index, int& advancedPosition);
@@ -74,6 +73,8 @@ public:
         void PutInt32(int32 value, int index, int& advancedPosition);
     UFUNCTION()
         void PutFloat32(float value, int index, int& advancedPosition);
+    UFUNCTION()
+        void PutFloat64(double value, int index, int& advancedPosition);
     UFUNCTION()
         void PutUInt32(uint32 value, int index, int& advancedPosition);
     UFUNCTION()

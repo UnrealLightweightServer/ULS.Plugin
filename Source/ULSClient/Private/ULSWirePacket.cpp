@@ -83,6 +83,18 @@ float UULSWirePacket::ReadFloat32(int index, int& advancedPosition) const
 	return *(float*)dataPtr;
 }
 
+double UULSWirePacket::ReadFloat64(int index, int& advancedPosition) const
+{
+	if (Payload.Num() < (index + sizeof(double)))
+	{
+		return 0;
+	}
+
+	advancedPosition += sizeof(double);
+	const uint8* dataPtr = Payload.GetData() + index;
+	return *(double*)dataPtr;
+}
+
 int64 UULSWirePacket::ReadInt64(int index, int& advancedPosition) const
 {
 	if (Payload.Num() < (index + sizeof(int64)))
@@ -173,6 +185,18 @@ void UULSWirePacket::PutFloat32(float value, int index, int& advancedPosition)
 	advancedPosition = index + sizeof(value);
 }
 
+void UULSWirePacket::PutFloat64(double value, int index, int& advancedPosition)
+{
+	if (Payload.Num() < (index + sizeof(value)))
+	{
+		return;
+	}
+
+	double* ptr = (double*)&Payload[index];
+	*ptr = value;
+	advancedPosition = index + sizeof(value);
+}
+
 void UULSWirePacket::PutUInt32(uint32 value, int index, int& advancedPosition)
 {
 	if (Payload.Num() < (index + sizeof(value)))
@@ -250,4 +274,18 @@ void UULSWirePacket::PutArray(TArray<uint8> bytes, int index, int& advancedPosit
 
 	uint8* ptr = (uint8*)&Payload[index];
 	memcpy(ptr, dataPtr, bytes.Num());
+	advancedPosition += bytes.Num();
 }
+
+const uint8* UULSWirePacket::ReadDataPtr(int size, int index, int& advancedPosition) const
+{
+	if (Payload.Num() < (index + size))
+	{
+		return nullptr;
+	}
+
+	advancedPosition += size;
+	const uint8* dataPtr = Payload.GetData() + index;
+	return dataPtr;
+}
+

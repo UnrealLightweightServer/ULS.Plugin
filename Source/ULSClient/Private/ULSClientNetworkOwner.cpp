@@ -5,6 +5,10 @@
 #include "ULSWirePacket.h"
 #include "GameFramework/PlayerState.h"
 #include "ULSTransport.h"
+#include "Misc/OutputDeviceNull.h"
+
+#define DEBUG_LOG 1
+#define SERIALIZE_LOG 1 && DEBUG_LOG
 
 void UULSClientNetworkOwner::HandleWirePacket(const UULSWirePacket* packet)
 {
@@ -108,11 +112,15 @@ void UULSClientNetworkOwner::HandleConnectionResponseMessage(const UULSWirePacke
 	bool success = ProcessConnectionResponsePacket(packet);
 	if (success)
 	{
+#if DEBUG_LOG
 		UE_LOG(LogTemp, Display, TEXT("Login successful"));
+#endif
 	}
 	else
 	{
+#if DEBUG_LOG
 		UE_LOG(LogTemp, Display, TEXT("Login failed"));
+#endif
 	}
 
 	OnConnectionEvent.Broadcast(success);
@@ -137,6 +145,253 @@ void UULSClientNetworkOwner::HandleRpcPacket(const UULSWirePacket* packet)
 	FString methodName = packet->ReadString(position, position);
 	FString returnType = packet->ReadString(position, position);
 	int32 numberOfParameters = packet->ReadInt32(position, position);
+
+#if SERIALIZE_LOG
+	UE_LOG(LogTemp, Display, TEXT("*** HandleRpcPacket *** -- methodName: %s"), *methodName);
+#endif
+	if ((flags & (1 << 0)) == (1 << 0))
+	{
+		// FullReflection
+		auto cls = existingActor->GetClass();
+		UFunction* function = cls->FindFunctionByName(FName(methodName));
+		if (IsValid(function) == false)
+		{
+			// TODO: Log properly
+			UE_LOG(LogTemp, Error, TEXT("Failed to find function %s on actor of type %s with uniqueId: %ld"), *methodName, *cls->GetName(), FindUniqueId(existingActor));
+			return;
+		}
+#if SERIALIZE_LOG
+		UE_LOG(LogTemp, Display, TEXT("numberOfParameters: %i"), numberOfParameters);
+#endif
+
+		uint8* Parms = (uint8*)FMemory_Alloca_Aligned(function->ParmsSize, function->GetMinAlignment());
+		FMemory::Memzero(Parms, function->ParmsSize);
+
+		for (size_t i = 0; i < numberOfParameters; i++)
+		{
+			int8 type = packet->ReadInt8(position, position);
+			FString fieldName = packet->ReadString(position, position);
+
+			FProperty* prop = function->FindPropertyByName(FName(*fieldName));
+			if (prop == nullptr)
+			{
+				// TODO: Log properly
+				UE_LOG(LogTemp, Error, TEXT("Failed to find property %s on function %s::%s"), *fieldName, *cls->GetName(), *methodName);
+				return;
+			}
+
+#if SERIALIZE_LOG
+			UE_LOG(LogTemp, Display, TEXT("param #%i: type %i -- name: %s"), i, type, *fieldName);
+#endif
+
+			switch (type)
+			{
+			case EReplicatedFieldType::Reference:
+			{
+				// Ref
+				auto actorRef = DeserializeRef(packet, position, position);
+				if (IsValid(actorRef) == false)
+				{
+					// Set the reference to "null"
+					FObjectProperty* objProp = (FObjectProperty*)prop;
+					if (AActor** valuePtr = objProp->ContainerPtrToValuePtr<AActor*>(Parms))
+					{
+						if (valuePtr != nullptr)
+						{
+							*valuePtr = nullptr;
+						}
+					}
+				}
+				else
+				{
+					FObjectProperty* objProp = (FObjectProperty*)prop;
+					if (AActor** valuePtr = objProp->ContainerPtrToValuePtr<AActor*>(Parms))
+					{
+						if (valuePtr != nullptr)
+						{
+							*valuePtr = actorRef;
+						}
+					}
+					else
+					{
+						UE_LOG(LogTemp, Warning, TEXT("HandleRpcPacket: valuePtr failed"));
+					}
+				}
+			}
+			break;
+
+			case EReplicatedFieldType::PrimitiveInt:
+			{
+				// Value
+				int32 propSize = prop->GetSize();
+				int32 size = packet->ReadInt32(position, position);
+
+				int64 newVal = 0;
+				if (size == 1)
+				{
+					newVal = DeserializeInt8(packet, position, position);
+				}
+				else if (size == 2)
+				{
+					newVal = DeserializeInt16(packet, position, position);
+				}
+				else if (size == 4)
+				{
+					newVal = DeserializeInt32(packet, position, position);
+				}
+				else if (size == 8)
+				{
+					newVal = DeserializeInt64(packet, position, position);
+				}
+
+				if (FIntProperty* intProp = CastField<FIntProperty>(prop))
+				{
+					if (int32* iVal = intProp->ContainerPtrToValuePtr<int32>(Parms))
+					{
+#if SERIALIZE_LOG
+						UE_LOG(LogTemp, Display, TEXT("HandleRpcPacket: %s.%s = %i"), *methodName, *prop->GetName(), newVal);
+#endif
+						*iVal = (int32)newVal;
+					}
+				}
+				else if (FInt16Property* int16Prop = CastField<FInt16Property>(prop))
+				{
+					if (int16* iVal = int16Prop->ContainerPtrToValuePtr<int16>(Parms))
+					{
+#if SERIALIZE_LOG
+						UE_LOG(LogTemp, Display, TEXT("HandleRpcPacket: %s.%s = %ld"), *methodName, *prop->GetName(), newVal);
+#endif
+						*iVal = (int16)newVal;
+					}
+				}
+				else if (FInt64Property* int64Prop = CastField<FInt64Property>(prop))
+				{
+					if (int64* iVal = int64Prop->ContainerPtrToValuePtr<int64>(Parms))
+					{
+#if SERIALIZE_LOG
+						UE_LOG(LogTemp, Display, TEXT("HandleRpcPacket: %s.%s = %ld"), *methodName, *prop->GetName(), newVal);
+#endif
+						*iVal = (int64)newVal;
+					}
+				}
+				else if (FBoolProperty* boolProp = CastField<FBoolProperty>(prop))
+				{
+					if (bool* bVal = boolProp->ContainerPtrToValuePtr<bool>(Parms))
+					{
+#if SERIALIZE_LOG
+						UE_LOG(LogTemp, Display, TEXT("HandleRpcPacket: %s.%s = %s"), *methodName, *prop->GetName(), newVal ? TEXT("TRUE") : TEXT("FALSE"));
+#endif
+						*bVal = (bool)newVal;
+					}
+				}
+				else
+				{
+					UE_LOG(LogTemp, Warning, TEXT("HandleRpcPacket: Unhandled property of type %s"), *prop->GetFullName());
+				}
+			}
+			break;
+
+			case EReplicatedFieldType::PrimitiveFloat:
+			{
+				// Value
+				int32 propSize = prop->GetSize();
+				int32 size = packet->ReadInt32(position, position);
+
+				// Support upcasting
+				double newVal = 0;
+				if (size == 4)
+				{
+					newVal = DeserializeFloat32(packet, position, position);
+				}
+				else
+				{
+					newVal = DeserializeFloat64(packet, position, position);
+				}
+
+				if (FFloatProperty* floatProp = CastField<FFloatProperty>(prop))
+				{
+					if (float_t* fVal = floatProp->ContainerPtrToValuePtr<float_t>(Parms))
+					{
+#if SERIALIZE_LOG
+						UE_LOG(LogTemp, Display, TEXT("HandleRpcPacket: %s.%s = %f"), *methodName, *prop->GetName(), newVal);
+#endif
+						*fVal = (float)newVal;
+					}
+				}
+				else if (FDoubleProperty* doubleProp = CastField<FDoubleProperty>(prop))
+				{
+					if (double* dVal = doubleProp->ContainerPtrToValuePtr<double>(Parms))
+					{
+#if SERIALIZE_LOG
+						UE_LOG(LogTemp, Display, TEXT("HandleRpcPacket: %s.%s = %f"), *methodName, *prop->GetName(), newVal);
+#endif
+						*dVal = newVal;
+					}
+				}
+				else
+				{
+					UE_LOG(LogTemp, Warning, TEXT("HandleRpcPacket: Unhandled property of type %s"), *prop->GetFullName());
+				}
+			}
+			break;
+
+			case EReplicatedFieldType::String:
+			{
+				// String
+				FString fieldValue = DeserializeString(packet, position, position);
+				FStrProperty* strProp = (FStrProperty*)prop;
+				if (FString* valuePtr = strProp->ContainerPtrToValuePtr<FString>(Parms))
+				{
+#if SERIALIZE_LOG
+					UE_LOG(LogTemp, Display, TEXT("HandleRpcPacket: %s.%s = %s"), *methodName, *prop->GetName(), *fieldValue);
+#endif
+					*valuePtr = fieldValue;
+				}
+				else
+				{
+					UE_LOG(LogTemp, Error, TEXT("HandleRpcPacket: valuePtr failed"));
+				}
+			}
+			break;
+
+			case EReplicatedFieldType::Vector3:
+			{
+				// String
+				FVector vec = DeserializeVector(packet, position, position);
+
+				FProperty* vecProp = (FProperty*)prop;
+				if (FVector* valuePtr = vecProp->ContainerPtrToValuePtr<FVector>(Parms))
+				{
+					if (valuePtr != nullptr)
+					{
+						*valuePtr = vec;
+					}
+				}
+				else
+				{
+					UE_LOG(LogTemp, Error, TEXT("HandleRpcPacket: valuePtr failed"));
+				}
+			}
+			break;
+			}
+		}
+
+		//UE_LOG(LogTemp, Display, TEXT("Command: %s"), *command);
+		//bool res = existingActor->CallFunctionByNameWithArguments(*command, outputDevice, nullptr, true);
+		ProcessEvent(function, Parms);
+		//UE_LOG(LogTemp, Display, TEXT("Command: %s -> %s"), *command, (res ? TEXT("TRUE") : TEXT("FALSE")));
+	}
+	else
+	{
+		// Generated and partial reflection
+		ProcessHandleRpcPacket(packet, position, existingActor, methodName, returnType, numberOfParameters);
+	}
+}
+
+void UULSClientNetworkOwner::ProcessHandleRpcPacket(const UULSWirePacket* packet, int packetReadPosition, AActor* existingActor, const FString& methodName,
+	const FString& returnType, const int32 numberOfParameters)
+{
+	// Base implementation does nothing
 }
 
 void UULSClientNetworkOwner::HandleRpcResponsePacket(const UULSWirePacket* packet)
@@ -258,8 +513,10 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 				{
 					if (*valuePtr != nullptr)
 					{
+#if SERIALIZE_LOG
 						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = nullptr -- (%li)=(%li)"), *existingActor->GetName(), *prop->GetName(),
 							uniqueId, -1);
+#endif
 						valueDidChange = true;
 						*valuePtr = nullptr;
 					}
@@ -272,8 +529,10 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 				{
 					if (*valuePtr != actorRef)
 					{
-						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s -- (%li)=(%li)"), *existingActor->GetName(), *prop->GetName(), 
+#if SERIALIZE_LOG
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s -- (%li)=(%li)"), *existingActor->GetName(), *prop->GetName(),
 							*actorRef->GetName(), uniqueId, FindUniqueId(actorRef));
+#endif
 						valueDidChange = true;
 						*valuePtr = actorRef;
 					}
@@ -286,7 +545,7 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 		}
 		break;
 
-		case EReplicatedFieldType::Primitive:
+		case EReplicatedFieldType::PrimitiveInt:
 		{
 			// Value
 			int32 propSize = prop->GetSize();
@@ -299,7 +558,9 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 					int32 newVal = DeserializeInt32(packet, position, position);
 					if (*iVal != newVal)
 					{
+#if SERIALIZE_LOG
 						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %i"), *existingActor->GetName(), *prop->GetName(), newVal);
+#endif
 						valueDidChange = true;
 						*iVal = newVal;
 					}
@@ -312,7 +573,9 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 					int16 newVal = DeserializeInt16(packet, position, position);
 					if (*iVal != newVal)
 					{
+#if SERIALIZE_LOG
 						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %ld"), *existingActor->GetName(), *prop->GetName(), newVal);
+#endif
 						valueDidChange = true;
 						*iVal = newVal;
 					}
@@ -325,22 +588,11 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 					int64 newVal = DeserializeInt64(packet, position, position);
 					if (*iVal != newVal)
 					{
+#if SERIALIZE_LOG
 						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %ld"), *existingActor->GetName(), *prop->GetName(), newVal);
+#endif
 						valueDidChange = true;
 						*iVal = newVal;
-					}
-				}
-			}
-			else if (FFloatProperty* floatProp = CastField<FFloatProperty>(prop))
-			{
-				if (float_t* fVal = floatProp->ContainerPtrToValuePtr<float_t>(existingActor))
-				{
-					float_t newVal = DeserializeFloat32(packet, position, position);
-					if (*fVal != newVal)
-					{
-						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %f"), *existingActor->GetName(), *prop->GetName(), newVal);
-						valueDidChange = true;
-						*fVal = newVal;
 					}
 				}
 			}
@@ -351,9 +603,54 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 					bool newVal = DeserializeBool(packet, position, position, size);
 					if (*bVal != newVal)
 					{
+#if SERIALIZE_LOG
 						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s"), *existingActor->GetName(), *prop->GetName(), newVal ? TEXT("TRUE") : TEXT("FALSE"));
+#endif
 						valueDidChange = true;
 						*bVal = newVal;
+					}
+				}
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("HandleReplicationMessage: Unhandled property of type %s"), *prop->GetFullName());
+			}
+		}
+		break;
+
+		case EReplicatedFieldType::PrimitiveFloat:
+		{
+			// Value
+			int32 propSize = prop->GetSize();
+			int32 size = packet->ReadInt32(position, position);
+
+			if (FFloatProperty* floatProp = CastField<FFloatProperty>(prop))
+			{
+				if (float_t* fVal = floatProp->ContainerPtrToValuePtr<float_t>(existingActor))
+				{
+					float_t newVal = DeserializeFloat32(packet, position, position);
+					if (*fVal != newVal)
+					{
+#if SERIALIZE_LOG
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %f"), *existingActor->GetName(), *prop->GetName(), newVal);
+#endif
+						valueDidChange = true;
+						*fVal = newVal;
+					}
+				}
+			}
+			else if (FDoubleProperty* doubleProp = CastField<FDoubleProperty>(prop))
+			{
+				if (double* dVal = doubleProp->ContainerPtrToValuePtr<double>(existingActor))
+				{
+					double newVal = DeserializeFloat64(packet, position, position);
+					if (*dVal != newVal)
+					{
+#if SERIALIZE_LOG
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %f"), *existingActor->GetName(), *prop->GetName(), newVal);
+#endif
+						valueDidChange = true;
+						*dVal = newVal;
 					}
 				}
 			}
@@ -373,7 +670,9 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 			{
 				if (*valuePtr != fieldValue)
 				{
+#if SERIALIZE_LOG
 					UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s"), *existingActor->GetName(), *prop->GetName(), *fieldValue);
+#endif
 					valueDidChange = true;
 					*valuePtr = fieldValue;
 				}
@@ -400,7 +699,9 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 						FMath::IsNearlyEqual(val.Y, vec.Y) == false ||
 						FMath::IsNearlyEqual(val.Z, vec.Z) == false)
 					{
+#if SERIALIZE_LOG
 						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s"), *existingActor->GetName(), *prop->GetName(), *vec.ToString());
+#endif
 						valueDidChange = true;
 						*valuePtr = vec;
 					}
@@ -503,6 +804,11 @@ AActor* UULSClientNetworkOwner::DeserializeRef(const UULSWirePacket* packet, int
 	return res;
 }
 
+int8 UULSClientNetworkOwner::DeserializeInt8(const UULSWirePacket* packet, int index, int& advancedPosition) const
+{
+	return packet->ReadInt8(index, advancedPosition);
+}
+
 int16 UULSClientNetworkOwner::DeserializeInt16(const UULSWirePacket* packet, int index, int& advancedPosition) const
 {
 	return packet->ReadInt16(index, advancedPosition);
@@ -521,6 +827,11 @@ int64 UULSClientNetworkOwner::DeserializeInt64(const UULSWirePacket* packet, int
 float UULSClientNetworkOwner::DeserializeFloat32(const UULSWirePacket* packet, int index, int& advancedPosition) const
 {
 	return packet->ReadFloat32(index, advancedPosition);
+}
+
+double UULSClientNetworkOwner::DeserializeFloat64(const UULSWirePacket* packet, int index, int& advancedPosition) const
+{
+	return packet->ReadFloat64(index, advancedPosition);
 }
 
 bool UULSClientNetworkOwner::DeserializeBool(const UULSWirePacket* packet, int index, int& advancedPosition, int boolSize) const
@@ -600,6 +911,15 @@ float UULSClientNetworkOwner::DeserializeFloat32Parameter(const UULSWirePacket* 
 	return DeserializeFloat32(packet, advancedPosition, advancedPosition);
 }
 
+double UULSClientNetworkOwner::DeserializeFloat64Parameter(const UULSWirePacket* packet, int index, int& advancedPosition) const
+{
+	int8 type = packet->ReadInt8(index, advancedPosition);
+	FString fieldName = packet->ReadString(advancedPosition, advancedPosition);
+	int32 size = packet->ReadInt32(advancedPosition, advancedPosition);
+	// TODO: Validate type
+	return DeserializeFloat64(packet, advancedPosition, advancedPosition);
+}
+
 bool UULSClientNetworkOwner::DeserializeBoolParameter(const UULSWirePacket* packet, int index, int& advancedPosition) const
 {
 	int8 type = packet->ReadInt8(index, advancedPosition);
@@ -665,6 +985,14 @@ void UULSClientNetworkOwner::SerializeFloat32Parameter(UULSWirePacket* packet, F
 	packet->PutFloat32(value, advancedPosition, advancedPosition);
 }
 
+void UULSClientNetworkOwner::SerializeFloat64Parameter(UULSWirePacket* packet, FString fieldname, double value, int index, int& advancedPosition) const
+{
+	packet->PutInt8(1, index, advancedPosition);
+	packet->PutString(fieldname, advancedPosition, advancedPosition);
+	packet->PutInt32(sizeof(value), advancedPosition, advancedPosition);
+	packet->PutFloat64(value, advancedPosition, advancedPosition);
+}
+
 void UULSClientNetworkOwner::SerializeBoolParameter(UULSWirePacket* packet, FString fieldname, bool value, int index, int& advancedPosition) const
 {
 	packet->PutInt8(1, index, advancedPosition);
@@ -697,22 +1025,27 @@ int32 UULSClientNetworkOwner::GetSerializeRefParameterSize(FString fieldName) co
 
 int32 UULSClientNetworkOwner::GetSerializeInt16ParameterSize(FString fieldName) const
 {
-	return 1 + 4 + fieldName.Len() + 4 + 2;
+	return 1 + 4 + fieldName.Len() + 4 + sizeof(int16);
 }
 
 int32 UULSClientNetworkOwner::GetSerializeInt32ParameterSize(FString fieldName) const
 {
-	return 1 + 4 + fieldName.Len() + 4 + 4;
+	return 1 + 4 + fieldName.Len() + 4 + sizeof(int32);
 }
 
 int32 UULSClientNetworkOwner::GetSerializeInt64ParameterSize(FString fieldName) const
 {
-	return 1 + 4 + fieldName.Len() + 4 + 8;
+	return 1 + 4 + fieldName.Len() + 4 + sizeof(int64);
 }
 
 int32 UULSClientNetworkOwner::GetSerializeFloat32ParameterSize(FString fieldName) const
 {
-	return 1 + 4 + fieldName.Len() + 4 + 4;
+	return 1 + 4 + fieldName.Len() + 4 + sizeof(float_t);
+}
+
+int32 UULSClientNetworkOwner::GetSerializeFloat64ParameterSize(FString fieldName) const
+{
+	return 1 + 4 + fieldName.Len() + 4 + sizeof(double);
 }
 
 int32 UULSClientNetworkOwner::GetSerializeBoolParameterSize(FString fieldName) const
