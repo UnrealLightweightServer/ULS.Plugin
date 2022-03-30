@@ -254,8 +254,11 @@ void UULSWirePacket::PutString(FString value, int index, int& advancedPosition)
 	advancedPosition += sizeof(int32);
 
 	// String chars
-	uint8* bptr = (uint8*)&Payload[index + 4];
-	memcpy(bptr, bytes.GetData(), bytes.Num());
+	if (bytes.Num() > 0)
+	{
+		uint8* bptr = (uint8*)&Payload[index + 4];
+		memcpy(bptr, bytes.GetData(), bytes.Num());
+	}
 	advancedPosition += bytes.Num();
 }
 
