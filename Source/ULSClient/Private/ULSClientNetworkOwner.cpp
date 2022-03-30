@@ -139,7 +139,7 @@ void UULSClientNetworkOwner::HandleRpcPacket(const UULSWirePacket* packet)
 	auto existingActor = FindActor(uniqueId);
 	if (IsValid(existingActor) == false)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("HandleReplicationMessage failed: Actor with id %ld not found"), uniqueId);
+		UE_LOG(LogTemp, Warning, TEXT("HandleRpcPacket failed: Actor with id %ld not found"), uniqueId);
 		return;
 	}
 	FString methodName = packet->ReadString(position, position);
