@@ -378,7 +378,7 @@ void UULSClientNetworkOwner::HandleRpcPacket(const UULSWirePacket* packet)
 
 		//UE_LOG(LogTemp, Display, TEXT("Command: %s"), *command);
 		//bool res = existingActor->CallFunctionByNameWithArguments(*command, outputDevice, nullptr, true);
-		ProcessEvent(function, Parms);
+		existingActor->ProcessEvent(function, Parms);
 		//UE_LOG(LogTemp, Display, TEXT("Command: %s -> %s"), *command, (res ? TEXT("TRUE") : TEXT("FALSE")));
 	}
 	else
