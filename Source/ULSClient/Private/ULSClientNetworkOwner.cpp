@@ -54,6 +54,10 @@ void UULSClientNetworkOwner::HandleWirePacket(const UULSWirePacket* packet)
 				HandleRpcResponsePacket(packet);
 				break;
 
+			case EWirePacketType::TearOff:
+				HandleTearOffPacket(packet);
+				break;
+
 			// Custom packets
 			case EWirePacketType::Custom:
 				OnReceivePacket(packet);
@@ -127,6 +131,11 @@ void UULSClientNetworkOwner::HandleConnectionResponseMessage(const UULSWirePacke
 }
 
 void UULSClientNetworkOwner::HandleConnectionEndMessage(const UULSWirePacket* packet)
+{
+	//
+}
+
+void UULSClientNetworkOwner::NetworkObjectWasTornOff(UObject* existingObject)
 {
 	//
 }
@@ -399,6 +408,22 @@ void UULSClientNetworkOwner::HandleRpcResponsePacket(const UULSWirePacket* packe
     //UE_LOG(LogTemp, Display, TEXT("UWebSocketConnection::HandleRpHandleRpcResponsePacket"));
 }
 
+void UULSClientNetworkOwner::HandleTearOffPacket(const UULSWirePacket* packet)
+{
+	int position = 0;
+	int32 flags = packet->ReadInt32(position, position);
+	int64 uniqueId = packet->ReadInt64(position, position);
+
+	auto obj = FindObjectRef(uniqueId);
+	if (IsValid(obj))
+	{
+		uniqueIdLookup.Remove(obj);
+
+		NetworkObjectWasTornOff(obj);
+	}
+	objectMap.Remove(uniqueId);
+}
+
 void UULSClientNetworkOwner::HandleSpawnActorMessage(const UULSWirePacket* packet)
 {
 	int position = 0;
@@ -553,7 +578,7 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 
 		if (prop == nullptr)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("HandleReplicationMessage: prop %s not found on actor %s"), *fieldName, *existingObject->GetDesc());
+			UE_LOG(LogTemp, Warning, TEXT("HandleReplicationMessage: prop %s not found on actor %ld of class %s"), *fieldName, uniqueId, *cls->GetName());
 			continue;
 		}
 

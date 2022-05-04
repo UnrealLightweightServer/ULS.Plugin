@@ -77,10 +77,20 @@ protected:
 
     virtual void HandleConnectionEndMessage(const UULSWirePacket* packet);
 
+    /*
+    * Called when the network object was torn off server-side. 
+    * 
+    * The object in question will be unregistered from the networking on the client-side, will no
+    * longer receive RPC calls and replication data and is now under full control of the client.
+    */
+    virtual void NetworkObjectWasTornOff(UObject* existingObject);
+
 private:
     void HandleRpcPacket(const UULSWirePacket* packet);
 
     void HandleRpcResponsePacket(const UULSWirePacket* packet);
+
+    void HandleTearOffPacket(const UULSWirePacket* packet);
 
     void HandleSpawnActorMessage(const UULSWirePacket* packet);
 
