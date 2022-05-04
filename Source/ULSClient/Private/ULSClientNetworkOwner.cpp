@@ -39,11 +39,11 @@ void UULSClientNetworkOwner::HandleWirePacket(const UULSWirePacket* packet)
                 break;
 
 			case EWirePacketType::CreateObject:
-				//HandleCreateObjectMessage(packet);
+				HandleCreateObjectMessage(packet);
 				break;
 
 			case EWirePacketType::DestroyObject:
-				//HandleDestroyObjectMessage(packet);
+				HandleDestroyObjectMessage(packet);
 				break;
 
 			case EWirePacketType::RpcCall:
@@ -136,10 +136,10 @@ void UULSClientNetworkOwner::HandleRpcPacket(const UULSWirePacket* packet)
 	int position = 0;
 	int32 flags = packet->ReadInt32(position, position);
 	int64 uniqueId = packet->ReadInt64(position, position);
-	auto existingActor = FindActor(uniqueId);
-	if (IsValid(existingActor) == false)
+	auto existingObject = FindObjectRef(uniqueId);
+	if (IsValid(existingObject) == false)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("HandleRpcPacket failed: Actor with id %ld not found"), uniqueId);
+		UE_LOG(LogTemp, Warning, TEXT("HandleRpcPacket failed: Object with id %ld not found"), uniqueId);
 		return;
 	}
 	FString methodName = packet->ReadString(position, position);
@@ -152,12 +152,12 @@ void UULSClientNetworkOwner::HandleRpcPacket(const UULSWirePacket* packet)
 	if ((flags & (1 << 0)) == (1 << 0))
 	{
 		// FullReflection
-		auto cls = existingActor->GetClass();
+		auto cls = existingObject->GetClass();
 		UFunction* function = cls->FindFunctionByName(FName(methodName));
 		if (IsValid(function) == false)
 		{
 			// TODO: Log properly
-			UE_LOG(LogTemp, Error, TEXT("Failed to find function %s on actor of type %s with uniqueId: %ld"), *methodName, *cls->GetName(), FindUniqueId(existingActor));
+			UE_LOG(LogTemp, Error, TEXT("Failed to find function %s on object of type %s with uniqueId: %ld"), *methodName, *cls->GetName(), FindUniqueId(existingObject));
 			return;
 		}
 #if SERIALIZE_LOG
@@ -189,12 +189,12 @@ void UULSClientNetworkOwner::HandleRpcPacket(const UULSWirePacket* packet)
 			case EReplicatedFieldType::Reference:
 			{
 				// Ref
-				auto actorRef = DeserializeRef(packet, position, position);
-				if (IsValid(actorRef) == false)
+				auto objRef = DeserializeRef(packet, position, position);
+				if (IsValid(objRef) == false)
 				{
 					// Set the reference to "null"
 					FObjectProperty* objProp = (FObjectProperty*)prop;
-					if (AActor** valuePtr = objProp->ContainerPtrToValuePtr<AActor*>(Parms))
+					if (UObject** valuePtr = objProp->ContainerPtrToValuePtr<UObject*>(Parms))
 					{
 						if (valuePtr != nullptr)
 						{
@@ -205,11 +205,11 @@ void UULSClientNetworkOwner::HandleRpcPacket(const UULSWirePacket* packet)
 				else
 				{
 					FObjectProperty* objProp = (FObjectProperty*)prop;
-					if (AActor** valuePtr = objProp->ContainerPtrToValuePtr<AActor*>(Parms))
+					if (UObject** valuePtr = objProp->ContainerPtrToValuePtr<UObject*>(Parms))
 					{
 						if (valuePtr != nullptr)
 						{
-							*valuePtr = actorRef;
+							*valuePtr = objRef;
 						}
 					}
 					else
@@ -377,18 +377,18 @@ void UULSClientNetworkOwner::HandleRpcPacket(const UULSWirePacket* packet)
 		}
 
 		//UE_LOG(LogTemp, Display, TEXT("Command: %s"), *command);
-		//bool res = existingActor->CallFunctionByNameWithArguments(*command, outputDevice, nullptr, true);
-		existingActor->ProcessEvent(function, Parms);
+		//bool res = existingObject->CallFunctionByNameWithArguments(*command, outputDevice, nullptr, true);
+		existingObject->ProcessEvent(function, Parms);
 		//UE_LOG(LogTemp, Display, TEXT("Command: %s -> %s"), *command, (res ? TEXT("TRUE") : TEXT("FALSE")));
 	}
 	else
 	{
 		// Generated and partial reflection
-		ProcessHandleRpcPacket(packet, position, existingActor, methodName, returnType, numberOfParameters);
+		ProcessHandleRpcPacket(packet, position, existingObject, methodName, returnType, numberOfParameters);
 	}
 }
 
-void UULSClientNetworkOwner::ProcessHandleRpcPacket(const UULSWirePacket* packet, int packetReadPosition, AActor* existingActor, const FString& methodName,
+void UULSClientNetworkOwner::ProcessHandleRpcPacket(const UULSWirePacket* packet, int packetReadPosition, UObject* existingObject, const FString& methodName,
 	const FString& returnType, const int32 numberOfParameters)
 {
 	// Base implementation does nothing
@@ -453,14 +453,74 @@ void UULSClientNetworkOwner::HandleDespawnActorMessage(const UULSWirePacket* pac
 	int32 flags = packet->ReadInt32(position, position);
 	int64 uniqueId = packet->ReadInt64(position, position);
 
-	auto actor = FindActor(uniqueId);
+	auto actor = Cast<AActor>(FindObjectRef(uniqueId));
 	if (IsValid(actor))
 	{
 		actor->Destroy();
 
 		uniqueIdLookup.Remove(actor);
 	}
-	actorMap.Remove(uniqueId);
+	objectMap.Remove(uniqueId);
+}
+
+void UULSClientNetworkOwner::HandleCreateObjectMessage(const UULSWirePacket* packet)
+{
+	int position = 0;
+
+	int32 flags = packet->ReadInt32(position, position);
+	FString className = packet->ReadString(position, position);
+	int64 uniqueId = packet->ReadInt64(position, position);
+
+	// If there is no dot, add ".<object_name>_C"
+	int32 PackageDelimPos = INDEX_NONE;
+	className.FindChar(TCHAR('.'), PackageDelimPos);
+	if (PackageDelimPos == INDEX_NONE)
+	{
+		int32 ObjectNameStart = INDEX_NONE;
+		className.FindLastChar(TCHAR('/'), ObjectNameStart);
+		if (ObjectNameStart != INDEX_NONE)
+		{
+			const FString ObjectName = className.Mid(ObjectNameStart + 1);
+			className += TCHAR('.');
+			className += ObjectName;
+			className += TCHAR('_');
+			className += TCHAR('C');
+		}
+	}
+
+	UClass* cls = FindObject<UClass>(nullptr, *className);
+	if (IsValid(cls) == false)
+	{
+		cls = LoadObject<UClass>(nullptr, *className);
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("HandleCreateObjectMessage: Spawn %s with network id: %ld"), *className, uniqueId);
+
+	if (IsValid(cls))
+	{
+		//UE_LOG(LogTemp, Display, TEXT("HandleCreateObjectMessage: Class found: %s"), *cls->GetDescription());
+		CreateNetworkObject(uniqueId, cls);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("HandleCreateObjectMessage failed: Class '%s' not found"), *className);
+	}
+}
+
+void UULSClientNetworkOwner::HandleDestroyObjectMessage(const UULSWirePacket* packet)
+{
+	int position = 0;
+	int32 flags = packet->ReadInt32(position, position);
+	int64 uniqueId = packet->ReadInt64(position, position);
+
+	auto obj = FindObjectRef(uniqueId);
+	if (IsValid(obj))
+	{
+		obj->MarkAsGarbage();
+
+		uniqueIdLookup.Remove(obj);
+	}
+	objectMap.Remove(uniqueId);
 }
 
 void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* packet)
@@ -468,10 +528,10 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 	int position = 0;
 	int32 flags = packet->ReadInt32(position, position);
 	int64 uniqueId = packet->ReadInt64(position, position);
-	auto existingActor = FindActor(uniqueId);
-	if (IsValid(existingActor) == false)
+	auto existingObject = FindObjectRef(uniqueId);
+	if (IsValid(existingObject) == false)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("HandleReplicationMessage failed: Actor with id %ld not found"), uniqueId);
+		UE_LOG(LogTemp, Warning, TEXT("HandleReplicationMessage failed: Object with id %ld not found"), uniqueId);
 		return;
 	}
 
@@ -483,7 +543,7 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 		return;
 	}
 
-	auto cls = existingActor->GetClass();
+	auto cls = existingObject->GetClass();
 	for (size_t i = 0; i < fieldCount; i++)
 	{
 		int8 type = packet->ReadInt8(position, position);
@@ -504,17 +564,17 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 		case EReplicatedFieldType::Reference:
 		{
 			// Ref
-			auto actorRef = DeserializeRef(packet, position, position);
-			if (IsValid(actorRef) == false)
+			auto objRef = DeserializeRef(packet, position, position);
+			if (IsValid(objRef) == false)
 			{
 				// Set the reference to "null"
 				FObjectProperty* objProp = (FObjectProperty*)prop;
-				if (AActor** valuePtr = objProp->ContainerPtrToValuePtr<AActor*>(existingActor))
+				if (UObject** valuePtr = objProp->ContainerPtrToValuePtr<UObject*>(existingObject))
 				{
 					if (*valuePtr != nullptr)
 					{
 #if SERIALIZE_LOG
-						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = nullptr -- (%li)=(%li)"), *existingActor->GetName(), *prop->GetName(),
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = nullptr -- (%li)=(%li)"), *existingObject->GetName(), *prop->GetName(),
 							uniqueId, -1);
 #endif
 						valueDidChange = true;
@@ -525,16 +585,17 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 			else
 			{
 				FObjectProperty* objProp = (FObjectProperty*)prop;
-				if (AActor** valuePtr = objProp->ContainerPtrToValuePtr<AActor*>(existingActor))
+				if (UObject** valuePtr = objProp->ContainerPtrToValuePtr<UObject*>(existingObject))
 				{
-					if (*valuePtr != actorRef)
+					if (*valuePtr != objRef)
 					{
 #if SERIALIZE_LOG
-						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s -- (%li)=(%li)"), *existingActor->GetName(), *prop->GetName(),
-							*actorRef->GetName(), uniqueId, FindUniqueId(actorRef));
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s -- (%li)=(%li)"), 
+							*existingObject->GetName(), *prop->GetName(),
+							*objRef->GetName(), uniqueId, FindUniqueId(objRef));
 #endif
 						valueDidChange = true;
-						*valuePtr = actorRef;
+						*valuePtr = objRef;
 					}
 				}
 				else
@@ -553,13 +614,13 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 			
 			if (FIntProperty* intProp = CastField<FIntProperty>(prop))
 			{
-				if (int32* iVal = intProp->ContainerPtrToValuePtr<int32>(existingActor))
+				if (int32* iVal = intProp->ContainerPtrToValuePtr<int32>(existingObject))
 				{
 					int32 newVal = DeserializeInt32(packet, position, position);
 					if (*iVal != newVal)
 					{
 #if SERIALIZE_LOG
-						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %i"), *existingActor->GetName(), *prop->GetName(), newVal);
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %i"), *existingObject->GetName(), *prop->GetName(), newVal);
 #endif
 						valueDidChange = true;
 						*iVal = newVal;
@@ -568,13 +629,13 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 			}
 			else if (FInt16Property* int16Prop = CastField<FInt16Property>(prop))
 			{
-				if (int16* iVal = int16Prop->ContainerPtrToValuePtr<int16>(existingActor))
+				if (int16* iVal = int16Prop->ContainerPtrToValuePtr<int16>(existingObject))
 				{
 					int16 newVal = DeserializeInt16(packet, position, position);
 					if (*iVal != newVal)
 					{
 #if SERIALIZE_LOG
-						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %ld"), *existingActor->GetName(), *prop->GetName(), newVal);
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %ld"), *existingObject->GetName(), *prop->GetName(), newVal);
 #endif
 						valueDidChange = true;
 						*iVal = newVal;
@@ -583,13 +644,13 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 			}
 			else if (FInt64Property* int64Prop = CastField<FInt64Property>(prop))
 			{
-				if (int64* iVal = int64Prop->ContainerPtrToValuePtr<int64>(existingActor))
+				if (int64* iVal = int64Prop->ContainerPtrToValuePtr<int64>(existingObject))
 				{
 					int64 newVal = DeserializeInt64(packet, position, position);
 					if (*iVal != newVal)
 					{
 #if SERIALIZE_LOG
-						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %ld"), *existingActor->GetName(), *prop->GetName(), newVal);
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %ld"), *existingObject->GetName(), *prop->GetName(), newVal);
 #endif
 						valueDidChange = true;
 						*iVal = newVal;
@@ -598,13 +659,13 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 			}
 			else if (FBoolProperty* boolProp = CastField<FBoolProperty>(prop))
 			{
-				if (bool* bVal = boolProp->ContainerPtrToValuePtr<bool>(existingActor))
+				if (bool* bVal = boolProp->ContainerPtrToValuePtr<bool>(existingObject))
 				{
 					bool newVal = DeserializeBool(packet, position, position, size);
 					if (*bVal != newVal)
 					{
 #if SERIALIZE_LOG
-						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s"), *existingActor->GetName(), *prop->GetName(), newVal ? TEXT("TRUE") : TEXT("FALSE"));
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s"), *existingObject->GetName(), *prop->GetName(), newVal ? TEXT("TRUE") : TEXT("FALSE"));
 #endif
 						valueDidChange = true;
 						*bVal = newVal;
@@ -626,13 +687,13 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 
 			if (FFloatProperty* floatProp = CastField<FFloatProperty>(prop))
 			{
-				if (float_t* fVal = floatProp->ContainerPtrToValuePtr<float_t>(existingActor))
+				if (float_t* fVal = floatProp->ContainerPtrToValuePtr<float_t>(existingObject))
 				{
 					float_t newVal = DeserializeFloat32(packet, position, position);
 					if (*fVal != newVal)
 					{
 #if SERIALIZE_LOG
-						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %f"), *existingActor->GetName(), *prop->GetName(), newVal);
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %f"), *existingObject->GetName(), *prop->GetName(), newVal);
 #endif
 						valueDidChange = true;
 						*fVal = newVal;
@@ -641,13 +702,13 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 			}
 			else if (FDoubleProperty* doubleProp = CastField<FDoubleProperty>(prop))
 			{
-				if (double* dVal = doubleProp->ContainerPtrToValuePtr<double>(existingActor))
+				if (double* dVal = doubleProp->ContainerPtrToValuePtr<double>(existingObject))
 				{
 					double newVal = DeserializeFloat64(packet, position, position);
 					if (*dVal != newVal)
 					{
 #if SERIALIZE_LOG
-						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %f"), *existingActor->GetName(), *prop->GetName(), newVal);
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %f"), *existingObject->GetName(), *prop->GetName(), newVal);
 #endif
 						valueDidChange = true;
 						*dVal = newVal;
@@ -666,12 +727,12 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 			// String
 			FString fieldValue = DeserializeString(packet, position, position);
 			FStrProperty* strProp = (FStrProperty*)prop;
-			if (FString* valuePtr = strProp->ContainerPtrToValuePtr<FString>(existingActor))
+			if (FString* valuePtr = strProp->ContainerPtrToValuePtr<FString>(existingObject))
 			{
 				if (*valuePtr != fieldValue)
 				{
 #if SERIALIZE_LOG
-					UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s"), *existingActor->GetName(), *prop->GetName(), *fieldValue);
+					UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s"), *existingObject->GetName(), *prop->GetName(), *fieldValue);
 #endif
 					valueDidChange = true;
 					*valuePtr = fieldValue;
@@ -690,7 +751,7 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 			FVector vec = DeserializeVector(packet, position, position);
 
 			FProperty* vecProp = (FProperty*)prop;
-			if (FVector* valuePtr = vecProp->ContainerPtrToValuePtr<FVector>(existingActor))
+			if (FVector* valuePtr = vecProp->ContainerPtrToValuePtr<FVector>(existingObject))
 			{
 				if (valuePtr != nullptr)
 				{
@@ -700,7 +761,7 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 						FMath::IsNearlyEqual(val.Z, vec.Z) == false)
 					{
 #if SERIALIZE_LOG
-						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s"), *existingActor->GetName(), *prop->GetName(), *vec.ToString());
+						UE_LOG(LogTemp, Display, TEXT("HandleReplicationMessage: %s.%s = %s"), *existingObject->GetName(), *prop->GetName(), *vec.ToString());
 #endif
 						valueDidChange = true;
 						*valuePtr = vec;
@@ -721,7 +782,7 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 			auto repFunction = cls->FindFunctionByName(FName(repFunctionName));
 			if (IsValid(repFunction))
 			{
-				existingActor->ProcessEvent(repFunction, NULL);
+				existingObject->ProcessEvent(repFunction, NULL);
 			}
 		}
 	}
@@ -730,17 +791,23 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 // Blueprint accessible function for finding actors by unique network ID
 AActor* UULSClientNetworkOwner::FindActorByUniqueId(int64 uniqueId) const
 {
-	return FindActor(uniqueId);
+	return Cast<AActor>(FindObjectRef(uniqueId));
 }
 
-AActor* UULSClientNetworkOwner::FindActor(int64 uniqueId) const
+// Blueprint accessible function for finding object by unique network ID
+UObject* UULSClientNetworkOwner::FindObjectRefByUniqueId(int64 uniqueId) const
+{
+	return FindObjectRef(uniqueId);
+}
+
+UObject* UULSClientNetworkOwner::FindObjectRef(int64 uniqueId) const
 {
 	if (uniqueId == -1)
 	{
 		return nullptr;
 	}
 
-	auto val = actorMap.Find(uniqueId);
+	auto val = objectMap.Find(uniqueId);
 	if (val == nullptr)
 	{
 		return nullptr;
@@ -748,14 +815,14 @@ AActor* UULSClientNetworkOwner::FindActor(int64 uniqueId) const
 	return *val;
 }
 
-int64 UULSClientNetworkOwner::FindUniqueId(const AActor* actor) const
+int64 UULSClientNetworkOwner::FindUniqueId(const UObject* obj) const
 {
-	if (IsValid(actor) == false)
+	if (IsValid(obj) == false)
 	{
 		return -1;
 	}
 
-	auto val = uniqueIdLookup.Find(actor);
+	auto val = uniqueIdLookup.Find(obj);
 	if (val == nullptr)
 	{
 		return -1;
@@ -765,8 +832,8 @@ int64 UULSClientNetworkOwner::FindUniqueId(const AActor* actor) const
 
 AActor* UULSClientNetworkOwner::SpawnNetworkActor(int64 uniqueId, UClass* cls)
 {
-	auto existingActor = FindActor(uniqueId);
-	if (existingActor != nullptr)
+	auto existingObject = FindObjectRef(uniqueId);
+	if (existingObject != nullptr)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("SpawnNetworkActor failed: Actor with id %ld already exists"), uniqueId);
 		return nullptr;
@@ -782,13 +849,32 @@ AActor* UULSClientNetworkOwner::SpawnNetworkActor(int64 uniqueId, UClass* cls)
 		actor->Destroy();
 		return nullptr;
 	}
-	actorMap.Add(uniqueId, networkActor);
+	objectMap.Add(uniqueId, networkActor);
 	uniqueIdLookup.Add(networkActor, uniqueId);
 	return networkActor;
 }
 
+UObject* UULSClientNetworkOwner::CreateNetworkObject(int64 uniqueId, UClass* cls)
+{
+	auto existingObject = FindObjectRef(uniqueId);
+	if (existingObject != nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("CreateNetworkObject failed: Object with id %ld already exists"), uniqueId);
+		return nullptr;
+	}
 
-AActor* UULSClientNetworkOwner::DeserializeRef(const UULSWirePacket* packet, int index, int& advancedPosition) const
+	auto obj = NewObject<UObject>((UObject*)GetTransientPackage(), cls);
+	if (IsValid(obj))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("CreateNetworkObject failed: Class %s is not a subclass of UObject"), *cls->GetName());
+		return nullptr;
+	}
+	objectMap.Add(uniqueId, obj);
+	uniqueIdLookup.Add(obj, uniqueId);
+	return obj;
+}
+
+UObject* UULSClientNetworkOwner::DeserializeRef(const UULSWirePacket* packet, int index, int& advancedPosition) const
 {
 	int64 uniqueId = packet->ReadInt64(index, advancedPosition);	
 	if (uniqueId == -1)
@@ -796,10 +882,10 @@ AActor* UULSClientNetworkOwner::DeserializeRef(const UULSWirePacket* packet, int
 		return nullptr;
 	}
 
-	auto res = FindActor(uniqueId);
+	auto res = FindObjectRef(uniqueId);
 	if (IsValid(res) == false)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("HandleReplicationMessage: Could not find actor with id %ld"), uniqueId);
+		UE_LOG(LogTemp, Warning, TEXT("HandleReplicationMessage: Could not find object with id %ld"), uniqueId);
 	}
 	return res;
 }
@@ -866,7 +952,7 @@ FVector UULSClientNetworkOwner::DeserializeVector(const UULSWirePacket* packet, 
 	);
 }
 
-AActor* UULSClientNetworkOwner::DeserializeRefParameter(const UULSWirePacket* packet, int index, int& advancedPosition) const
+UObject* UULSClientNetworkOwner::DeserializeRefParameter(const UULSWirePacket* packet, int index, int& advancedPosition) const
 {
 	int8 type = packet->ReadInt8(index, advancedPosition);
 	FString fieldName = packet->ReadString(advancedPosition, advancedPosition);
@@ -946,7 +1032,7 @@ FVector UULSClientNetworkOwner::DeserializeVectorParameter(const UULSWirePacket*
 }
 
 // Serialization
-void UULSClientNetworkOwner::SerializeRefParameter(UULSWirePacket* packet, FString fieldname, const AActor* value, int index, int& advancedPosition) const
+void UULSClientNetworkOwner::SerializeRefParameter(UULSWirePacket* packet, FString fieldname, const UObject* value, int index, int& advancedPosition) const
 {
 	packet->PutInt8(0, index, advancedPosition);
 	packet->PutString(fieldname, advancedPosition, advancedPosition);

@@ -49,6 +49,9 @@ public:
 	UFUNCTION(BlueprintCallable)
 		AActor* FindActorByUniqueId(int64 uniqueId) const;
 
+    UFUNCTION(BlueprintCallable)
+        UObject* FindObjectRefByUniqueId(int64 uniqueId) const;
+
 protected:
     /*
     * Fills the connection request packet with user-specific data.
@@ -67,7 +70,7 @@ protected:
     */
     virtual bool ProcessConnectionResponsePacket(const UULSWirePacket* packet);
 
-    virtual void ProcessHandleRpcPacket(const UULSWirePacket* packet, int packetReadPosition, AActor* existingActor, const FString& methodName,
+    virtual void ProcessHandleRpcPacket(const UULSWirePacket* packet, int packetReadPosition, UObject* existingActor, const FString& methodName,
         const FString& returnType, const int32 numberOfParameters);
 
     virtual void HandleConnectionResponseMessage(const UULSWirePacket* packet);
@@ -83,6 +86,10 @@ private:
 
     void HandleDespawnActorMessage(const UULSWirePacket* packet);
 
+    void HandleCreateObjectMessage(const UULSWirePacket* packet);
+
+    void HandleDestroyObjectMessage(const UULSWirePacket* packet);
+
     void HandleReplicationMessage(const UULSWirePacket* packet);
 
     void ReadProperties(const UULSWirePacket* packet, const UClass* theClass, int numProperties, UObject* targetObject, int position, bool callOnRep = false);
@@ -91,19 +98,21 @@ private:
 
 private:
 	UPROPERTY()
-		TMap<int64, AActor*> actorMap;
+		TMap<int64, UObject*> objectMap;
 	UPROPERTY()
-		TMap<AActor*, int64> uniqueIdLookup;
+		TMap<UObject*, int64> uniqueIdLookup;
 
 protected:
-	AActor* FindActor(int64 uniqueId) const;
+    UObject* FindObjectRef(int64 uniqueId) const;
 
-	int64 FindUniqueId(const AActor* actor) const;
+	int64 FindUniqueId(const UObject* actor) const;
 
 	AActor* SpawnNetworkActor(int64 uniqueId, UClass* cls);
+
+    UObject* CreateNetworkObject(int64 uniqueId, UClass* cls);
 	
     UFUNCTION()
-        AActor* DeserializeRef(const UULSWirePacket* packet, int index, int& advancedPosition) const;
+        UObject* DeserializeRef(const UULSWirePacket* packet, int index, int& advancedPosition) const;
     UFUNCTION()
         int8 DeserializeInt8(const UULSWirePacket* packet, int index, int& advancedPosition) const;
     UFUNCTION()
@@ -124,7 +133,7 @@ protected:
         FVector DeserializeVector(const UULSWirePacket* packet, int index, int& advancedPosition) const;
 
     UFUNCTION()
-        AActor* DeserializeRefParameter(const UULSWirePacket* packet, int index, int& advancedPosition) const;
+        UObject* DeserializeRefParameter(const UULSWirePacket* packet, int index, int& advancedPosition) const;
     UFUNCTION()
         int16 DeserializeInt16Parameter(const UULSWirePacket* packet, int index, int& advancedPosition) const;
     UFUNCTION()
@@ -143,7 +152,7 @@ protected:
         FVector DeserializeVectorParameter(const UULSWirePacket* packet, int index, int& advancedPosition) const;
 
     UFUNCTION()
-        void SerializeRefParameter(UULSWirePacket* packet, FString fieldname, const AActor* value, int index, int& advancedPosition) const;
+        void SerializeRefParameter(UULSWirePacket* packet, FString fieldname, const UObject* value, int index, int& advancedPosition) const;
     UFUNCTION()
         void SerializeInt16Parameter(UULSWirePacket* packet, FString fieldname, int16 value, int index, int& advancedPosition) const;
     UFUNCTION()
