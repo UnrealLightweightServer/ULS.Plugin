@@ -553,7 +553,7 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 
 		if (prop == nullptr)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("HandleReplicationMessage: prop %s not found on actor %s"), *fieldName, *existingActor->GetDesc());
+			UE_LOG(LogTemp, Warning, TEXT("HandleReplicationMessage: prop %s not found on actor %s"), *fieldName, *existingObject->GetDesc());
 			continue;
 		}
 

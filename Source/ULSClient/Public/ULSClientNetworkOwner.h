@@ -70,7 +70,7 @@ protected:
     */
     virtual bool ProcessConnectionResponsePacket(const UULSWirePacket* packet);
 
-    virtual void ProcessHandleRpcPacket(const UULSWirePacket* packet, int packetReadPosition, UObject* existingActor, const FString& methodName,
+    virtual void ProcessHandleRpcPacket(const UULSWirePacket* packet, int packetReadPosition, UObject* existingObject, const FString& methodName,
         const FString& returnType, const int32 numberOfParameters);
 
     virtual void HandleConnectionResponseMessage(const UULSWirePacket* packet);
