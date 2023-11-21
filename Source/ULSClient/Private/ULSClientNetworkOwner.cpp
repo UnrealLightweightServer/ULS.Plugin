@@ -143,25 +143,26 @@ void UULSClientNetworkOwner::NetworkObjectWasTornOff(UObject* existingObject)
 void UULSClientNetworkOwner::HandleRpcPacket(const UULSWirePacket* packet)
 {
 	int position = 0;
-	int32 flags = packet->ReadInt32(position, position);
-	int64 uniqueId = packet->ReadInt64(position, position);
-	auto existingObject = FindObjectRef(uniqueId);
+	const int32 flags = packet->ReadInt32(position, position);
+	const int64 uniqueId = packet->ReadInt64(position, position);
+	const auto existingObject = FindObjectRef(uniqueId);
 	if (IsValid(existingObject) == false)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("HandleRpcPacket failed: Object with id %ld not found"), uniqueId);
 		return;
 	}
-	FString methodName = packet->ReadString(position, position);
-	FString returnType = packet->ReadString(position, position);
-	int32 numberOfParameters = packet->ReadInt32(position, position);
+	const FString methodName = packet->ReadString(position, position);
+	const FString returnType = packet->ReadString(position, position);
+	const int32 numberOfParameters = packet->ReadInt32(position, position);
 
 #if SERIALIZE_LOG
 	UE_LOG(LogTemp, Display, TEXT("*** HandleRpcPacket *** -- methodName: %s"), *methodName);
+	UE_LOG(LogTemp, Display, TEXT("*** HandleRpcPacket *** -- existingObject: %s"), *existingObject->GetName());
 #endif
-	if ((flags & (1 << 0)) == (1 << 0))
+	if ((flags & (1 << 0)) > 0)
 	{
 		// FullReflection
-		auto cls = existingObject->GetClass();
+		const auto cls = existingObject->GetClass();
 		UFunction* function = cls->FindFunctionByName(FName(methodName));
 		if (IsValid(function) == false)
 		{
@@ -807,7 +808,20 @@ void UULSClientNetworkOwner::HandleReplicationMessage(const UULSWirePacket* pack
 			auto repFunction = cls->FindFunctionByName(FName(repFunctionName));
 			if (IsValid(repFunction))
 			{
-				existingObject->ProcessEvent(repFunction, NULL);
+				UE_LOG(LogTemp, Display, TEXT("repFunctionName: %s"), *repFunctionName);
+				UE_LOG(LogTemp, Display, TEXT("  -> repFunction->ParmsSize: %i"), repFunction->ParmsSize);
+				uint8* Parms = (uint8*)FMemory_Alloca_Aligned(repFunction->ParmsSize, repFunction->GetMinAlignment());
+				FMemory::Memzero(Parms, repFunction->ParmsSize);
+
+				if (IsValid(existingObject) == false)
+				{
+					UE_LOG(LogTemp, Error, TEXT("existingObject is invalid. Can't process call to function %s"),
+						*repFunctionName);
+				}
+				else
+				{
+					existingObject->ProcessEvent(repFunction, Parms);
+				}
 			}
 		}
 	}
@@ -889,7 +903,7 @@ UObject* UULSClientNetworkOwner::CreateNetworkObject(int64 uniqueId, UClass* cls
 	}
 
 	auto obj = NewObject<UObject>((UObject*)GetTransientPackage(), cls);
-	if (IsValid(obj))
+	if (IsValid(obj) == false)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("CreateNetworkObject failed: Class %s is not a subclass of UObject"), *cls->GetName());
 		return nullptr;
